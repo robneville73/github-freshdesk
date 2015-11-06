@@ -17,6 +17,7 @@
     "github",
     "integration"
   ],
+  "main": "lib/main.js",
   "dependencies": {
     "github": "~0.2.4"
   }
