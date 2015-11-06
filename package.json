@@ -1,6 +1,6 @@
 {
   "name": "github-freshdesk",
-  "version": "0.1",
+  "version": "0.0.1",
   "description": "An integration between github and freshdesk",
   "author": "Rob Neville <robertneville73@gmail.com>",
   "license": "MIT",
