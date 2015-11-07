@@ -17,9 +17,10 @@
     "github",
     "integration"
   ],
-  "main": "lib/main.js",
+  "main": "app.js",
   "dependencies": {
+    "express": "^4.13.3",
+    "freshdesk": "^0.1.1",
     "github": "~0.2.4"
   }
-
 }
