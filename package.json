@@ -19,8 +19,10 @@
   ],
   "main": "app.js",
   "dependencies": {
+    "body-parser": "^1.14.1",
     "express": "^4.13.3",
-    "freshdesk": "^0.1.1",
-    "github": "~0.2.4"
+    "github": "~0.2.4",
+    "nconf": "^0.8.2",
+    "request": "^2.65.0"
   }
 }
