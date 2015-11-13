@@ -33,7 +33,6 @@ var github = new GitHubApi({
 });
 
 function ticketUrl(id) {
-  console.log(fd_url);
   return fd_url+'/helpdesk/tickets/'+id+'.json';
 }
 
@@ -146,7 +145,6 @@ app.post('/api/freshdeskHook/createIssue/:id', function(apiRequest, response) {
 
     data.helpdesk_ticket.custom_field[realCustomFieldName] = issueDetails.number;
 
-    console.log("data for PUT = ", data);
     request({
       url: ticketUrl(ticketDetails.id),
       method: 'PUT',
