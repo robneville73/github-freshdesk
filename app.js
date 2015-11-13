@@ -10,8 +10,8 @@ var GitHubApi = require("github");
 
 var nconf = require('nconf');
 
-nconf.argv().env().file({
-  file: './package.json'
+nconf.file({
+  file: 'config.json'
 });
 
 var repo = nconf.get('repo');
@@ -19,8 +19,7 @@ var githubUser = nconf.get('githubUser');
 var githubPassword = nconf.get('githubPassword');
 var fd_api = nconf.get('fd_api');
 var fd_url = nconf.get('fd_url');
-
-var Freshdesk = new fd(fd_url, fd_api);
+var fd_customfield = nconf.get('fd_customfield');
 
 var github = new GitHubApi({
   version: "3.0.0",
@@ -33,6 +32,11 @@ var github = new GitHubApi({
   }
 });
 
+function ticketUrl(id) {
+  console.log(fd_url);
+  return fd_url+'/helpdesk/tickets/'+id+'.json';
+}
+
 //
 // freshdeskHooks
 //
@@ -43,9 +47,42 @@ app.post('/api/freshdeskHook/createIssue/:id', function(apiRequest, response) {
   };
   var issueDetails = {};
 
-  Freshdesk.getTicket(ticketDetails.id, getTicketDetails);
+  // FreshDesk custom fields have an internal globally unique name that's
+  // linked to the name shown on the web so we need to grab all of the fields
+  // from their API to get the real name of the field we're using to store the
+  // github issue in
+  var realCustomFieldName;
+  request({
+    url: fd_url + '/ticket_fields.json',
+    method: 'GET',
+    auth: {
+      user: fd_api,
+      pass: 'X'
+    }
+  }, function(err, res, body) {
+    var fields = JSON.parse(body);
+    for(var i=0; i < fields.length; i++) {
+      if(fields[i].ticket_field.label_in_portal === fd_customfield) {
+        realCustomFieldName = fields[i].ticket_field.name;
+        lookupTicket();
+      }
+    }
+  });
 
-  function getTicketDetails(err, res, body) {
+  //call FreshDesk API to retrieve ticket
+  function lookupTicket() {
+    request({
+      url: ticketUrl(ticketDetails.id),
+      method: 'GET',
+      auth: {
+        user: fd_api,
+        pass: 'X'
+      }
+    }, extractTicketDetails);
+  }
+
+  //parse relevant details out of FD ticket.
+  function extractTicketDetails(err, res, body) {
     if(err) {
       handleError("Error getting ticket details", err);
     } else {
@@ -59,6 +96,7 @@ app.post('/api/freshdeskHook/createIssue/:id', function(apiRequest, response) {
     }
   }
 
+  //create new github issue
   function createIssue() {
     //create new github issue
     //http://mikedeboer.github.io/node-github/#issues.prototype.create
@@ -79,6 +117,7 @@ app.post('/api/freshdeskHook/createIssue/:id', function(apiRequest, response) {
     });
   }
 
+  //create new comment on the newly created issue
   function createComment() {
     //add comment to issue with link to ticket
     authenticateGitHub();
@@ -96,27 +135,40 @@ app.post('/api/freshdeskHook/createIssue/:id', function(apiRequest, response) {
     });
   }
 
+  //push new issue # back to custom field on freshdesk ticket
+  //and send back a 201 if all goes OK
   function updateTicket() {
     var data = {
       "helpdesk_ticket": {
-        "custom_field": {
-          "githubissue": issueDetails.number
-        }
+        "custom_field": {}
       }
     };
-    var url = '/helpdesk/tickets/' + ticketDetails.id + '.json';
-    Freshdesk.put(url, data, function(err, res, body) {
+
+    data.helpdesk_ticket.custom_field[realCustomFieldName] = issueDetails.number;
+
+    console.log("data for PUT = ", data);
+    request({
+      url: ticketUrl(ticketDetails.id),
+      method: 'PUT',
+      auth: {
+        user: fd_api,
+        pass: 'X'
+      },
+      json: true,
+      body: data
+    }, function(err, res, body) {
       if(err) {
         handleError("Error creating githubissue link on FreshDesk", err);
       } else {
-        response.status(201);
+        console.log("All done here...");
+        response.status(201).send("Issue created.");
       }
     });
   }
 
   function handleError(msg, err) {
-    console.log(msg + ' ', JSON.parse(err));
-    response.status(500).send(msg + ' '+ JSON.parse(err));
+    console.log(msg + ' ', err);
+    response.status(500).send(msg + ' '+ err);
   }
 
   function authenticateGitHub() {
