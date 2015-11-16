@@ -19,10 +19,12 @@
   ],
   "main": "app.js",
   "dependencies": {
+    "async": "^1.5.0",
     "body-parser": "^1.14.1",
     "express": "^4.13.3",
     "github": "~0.2.4",
     "nconf": "^0.8.2",
-    "request": "^2.65.0"
+    "request": "^2.65.0",
+    "to-markdown": "^2.0.1"
   }
 }
