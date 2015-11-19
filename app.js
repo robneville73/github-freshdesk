@@ -1,10 +1,11 @@
 var express = require('express');
 var app = express();
 var request = require('request');
-var toMarkdown = require('to-markdown');
 var async = require('async');
 var freshdesk = require('./lib/freshdesk');
 var github = require('./lib/github');
+var bodyParser = require('body-parser');
+var toMarkdown = require('to-markdown');
 
 app.use(bodyParser.urlencoded({extended: true}));
 app.use(bodyParser.json());
@@ -18,7 +19,7 @@ var config_data = require('./lib/config');
 app.post('/api/freshdeskHook/createIssue/:id', function(apiRequest, response) {
 
   var realCustomFieldName;
-  var ticketDetails;
+  var ticketDetails = {};
   var issueNumber;
 
   //see https://github.com/caolan/async#waterfall
@@ -29,9 +30,10 @@ app.post('/api/freshdeskHook/createIssue/:id', function(apiRequest, response) {
       callback(null, apiRequest.params.id);
     },
     freshdesk.lookupTicket, //takes ticket id, returns body of JSON of ticket
-    freshdesk.extractTicketDetails, //takes JSON response, returns ticketDetails object
     function(details, callback) {
-      ticketDetails = details;
+      ticketDetails.subject = details.helpdesk_ticket.subject;
+      ticketDetails.description = details.helpdesk_ticket.description;
+      ticketDetails.ticketUrl = config_data.fd_url + '/' + details.helpdesk_ticket.display_id;
       callback(null);
     },
     github.authenticate, //takes null, returns null
@@ -52,9 +54,9 @@ app.post('/api/freshdeskHook/createIssue/:id', function(apiRequest, response) {
     freshdesk.updateTicket, //takes ticket id & updateObj, returns null
     github.authenticate, //takes null, returns null
     function(callback){
-      callback(null, issueNumber, ticketDetails);
+      callback(null, issueNumber, ticketDetails.ticketUrl);
     },
-    github.createComment //takes issue number and ticketDetails objtect, returns null
+    github.createComment //takes issue number and comment, returns null
   ], function(error, result) {
     if(error) {
       response.status(500).send(error);
@@ -64,64 +66,46 @@ app.post('/api/freshdeskHook/createIssue/:id', function(apiRequest, response) {
 });
 
 app.post('/api/freshdeskHook/createComment/:id', function(req, res) {
-  var ticketDetails = {
-    id: apiRequest.params.id
-  };
+  var ticketDetails = {};
   var issueDetails = {};
+  var realCustomFieldName;
 
-  //call FreshDesk API to retrieve ticket
-  function lookupTicket() {
-    request({
-      url: ticketUrl(ticketDetails.id),
-      method: 'GET',
-      auth: {
-        user: config_data.fd_api,
-        pass: 'X'
-      }
-    }, extractTicketDetails);
-  }
-
-  //parse relevant details out of FD ticket.
-  function extractTicketDetails(err, res, body) {
-    if(err) {
-      handleError("Error getting ticket details", err);
-    } else {
-      body = JSON.parse(body);
-      var latest_note = body.helpdesk_ticket.notes[body.helpdesk_ticket.notes.length-1];
-      ticketDetails.note = toMarkdown(latest_note.body_html);
-      ticketDetails.note_user = latest_note.user_id;
-
-      lookupUserDetails();
+  //see https://github.com/caolan/async#waterfall
+  async.waterfall([
+    freshdesk.getTicketFields,
+    function(fieldName, callback) {
+      realCustomFieldName = fieldName;
+      callback(null);
+    },
+    function(callback) {
+      callback(null, req.params.id);
+    },
+    freshdesk.lookupTicket, //takes ticket id, returns body of JSON of ticket
+    function(details, callback) {
+      var latest_note = details.helpdesk_ticket.notes[details.helpdesk_ticket.notes.length-1];
+      ticketDetails.note = toMarkdown(latest_note.note.body_html);
+      ticketDetails.note_user = latest_note.note.user_id;
+      ticketDetails.githubissue = details.helpdesk_ticket.custom_field[realCustomFieldName];
+      callback(null, ticketDetails.note_user);
+    },
+    freshdesk.lookupUserDetails, //takes FD user id, returns user object
+    function(user_details, callback) {
+      ticketDetails.last_note_username = user_details.name;
+      ticketDetails.note = ticketDetails.last_note_username + ' added freshdesk note: ' + ticketDetails.note;
+      callback(null);
+    },
+    github.authenticate,
+    function(callback) {
+      callback(null, ticketDetails.githubissue, ticketDetails.note);
+    },
+    github.createComment
+  ], function(error, result) {
+    if(error) {
+      res.status(500).send(error);
     }
-  }
+    res.status(201).send("Comment exported to github.");
+  });
 
-  //get name of user_id that submitted the latest note
-  function lookupUserDetails() {
-    request({
-      url: userUrl(ticketDetails.note_user),
-      method: 'GET',
-      auth: {
-        user: config_data.fd_api,
-        pass: 'X'
-      }
-    }, extractUserDetails);
-  }
-
-  function extractUserDetails(err, res, body) {
-    if(err) {
-      handleError("Error retreiving user details", err);
-    } else {
-      body = JSON.parse(body);
-      ticketDetails.note_user = body.user.name;
-
-      //nextStep();
-    }
-  }
-
-  function handleError(msg, err) {
-    console.log(msg + ' ', err);
-    response.status(500).send(msg + ' '+ err);
-  }
 });
 
 app.post('/api/freshdeskHook/linkIssue/:id', function(req, res) {
