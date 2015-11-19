@@ -13,5 +13,8 @@ This project creates a node based web service to receive webhook calls from Gith
           "githubPassword": "yourgithubpassword",
           "fd_api": "Your freshdesk API key",
           "fd_url": "https://youruniqueurlto.freshdesk.com",
-          "fd_customfield": "name of custom field you're using to track github issue number"
+          "fd_customfield": "name of custom field you're using to track github issue number",
+          "fd_customdevstatus": <integer> of your custom FreshDesk status that triggers a linkage to github
         }
+
+ * FreshDesk's API doesn't provide an automated way to lookup the status. You'll have to look at their API docs https://freshdesk.com/api#view_a_ticket and run it against a ticket you've manually set to your target status and see what integer it assigns to it. Sorry...that kinda sucks but not sure what else to do about it.
