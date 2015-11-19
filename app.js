@@ -34,6 +34,14 @@ app.post('/api/freshdeskHook/createIssue/:id', function(req, res) {
     },
     freshdesk.lookupTicket, //takes ticket id, returns body of JSON of ticket
     function(details, callback) {
+      if(details.helpdesk_ticket.status !== config_data.fd_customdevstatus) {
+        callback(new Error("FreshDesk ticket not at status "+config_data.fd_customdevstatus));
+        return;
+      }
+      if(details.helpdesk_ticket.custom_field[realCustomFieldName] !== null) {
+        callback(new Error("FreshDesk ticket appears to already be linked to issue "+details.helpdesk_ticket.custom_field[realCustomFieldName]));
+        return;
+      }
       ticketDetails.subject = details.helpdesk_ticket.subject;
       ticketDetails.description = details.helpdesk_ticket.description;
       ticketDetails.ticketUrl = config_data.fd_url + '/' + details.helpdesk_ticket.display_id;
@@ -78,7 +86,8 @@ app.post('/api/freshdeskHook/createIssue/:id', function(req, res) {
     //
   ], function(error, result) {
     if(error) {
-      res.status(500).send(error);
+      console.log("Problem creating issue", error);
+      res.status(500).send(error.message);
     } else {
       res.status(201).send("Issue created.");
     }
