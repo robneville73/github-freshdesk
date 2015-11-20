@@ -15,6 +15,13 @@ var config_data = require('./lib/config');
 // freshdeskHooks
 //
 
+var fd_status = {
+  OPEN: 2,
+  RESOLVED: 4
+};
+
+fd_status.TODEV = config_data.fd_customdevstatus;
+
 //create a new github issue from a freshdesk ticket
 app.post('/api/freshdeskHook/createIssue/:id', function(req, res) {
 
@@ -34,8 +41,8 @@ app.post('/api/freshdeskHook/createIssue/:id', function(req, res) {
     },
     freshdesk.lookupTicket, //takes ticket id, returns body of JSON of ticket
     function(details, callback) {
-      if(details.helpdesk_ticket.status !== config_data.fd_customdevstatus) {
-        callback(new Error("FreshDesk ticket not at status "+config_data.fd_customdevstatus));
+      if(details.helpdesk_ticket.status !== fd_status.TODEV) {
+        callback(new Error("FreshDesk ticket not at status "+fd_status.TODEV));
         return;
       }
       if(details.helpdesk_ticket.custom_field[realCustomFieldName] !== null) {
@@ -176,8 +183,8 @@ app.put('/api/freshdeskHook/linkIssue/:id', function(req, res) {
     },
     freshdesk.lookupTicket, //takes ticket id, returns body of JSON of ticket
     function(details, callback) {
-      if(details.helpdesk_ticket.status !== config_data.fd_customdevstatus) {
-        callback(new Error("FreshDesk ticket not at status "+config_data.fd_customdevstatus));
+      if(details.helpdesk_ticket.status !== fd_status.TODEV) {
+        callback(new Error("FreshDesk ticket not at status "+fd_status.TODEV));
         return;
       }
       if(details.helpdesk_ticket.custom_field[realCustomFieldName] === null) {
@@ -249,8 +256,8 @@ app.put('/api/freshdeskHook/resolveIssue/:id', function(req, res) {
     freshdesk.lookupTicket, //takes ticket id, returns body of JSON of ticket
     function(details, callback) {
       //do some sanity checking
-      if(details.helpdesk_ticket.status !== config_data.fd_customdevstatus) {
-        callback(new Error("FreshDesk ticket not at status "+config_data.fd_customdevstatus));
+      if(details.helpdesk_ticket.status !== fd_status.RESOLVED) {
+        callback(new Error("FreshDesk ticket not at Resolved status."));
         return;
       }
       if(details.helpdesk_ticket.custom_field[realCustomFieldName] === null) {
@@ -260,38 +267,57 @@ app.put('/api/freshdeskHook/resolveIssue/:id', function(req, res) {
 
       ticketDetails.githubissue = details.helpdesk_ticket.custom_field[realCustomFieldName];
 
-      callback(null, ticketDetails.githubissue);
+      callback(null);
     },
 
     //
-    // Check FreshDesk ticket to make sure it exists and it's closed.
+    // Check GitHub issue to make sure it exists, is linked and is opened.
     //
+    github.authenticate, //takes null, returns null
+    function(callback) {
+      callback(null, ticketDetails.githubissue);
+    },
     github.getIssue, //will bomb if not present.
     function(githubissue, callback) {
-      if(githubissue.state !== 'closed') {
-        callback(new Error("Github issue "+ticketDetails.githubissue+" doesn't appear to be closed."));
+      if(githubissue.state !== 'open') {
+        callback(new Error("Github issue "+ticketDetails.githubissue+" doesn't appear to be open anyways."));
+        return;
+      }
+      linkedLabel = githubissue.labels.map(function(element){
+        if(element.hasOwnProperty('name') && element.name === 'linked') {
+          return element.name;
+        }
+      });
+      if(linkedLabel.length <= 0) {
+        callback(new Error("Github issue doesn't appear to be linked to anything."));
         return;
       }
       callback(null);
     },
 
-    //
-    // Add note to FreshDesk ticket that development has resolved the issue
-    //
+    // add comment to GitHub issue that the FreshDesk ticket was closed
     function(callback) {
-      callback(null, req.params.id, "Development has checked in the changes needed for this issue. It will be incoporated into the next release.");
+      callback(null, ticketDetails.githubissue, "The help desk ticket that this issue was linked to has been manually closed.");
     },
-    freshdesk.addNote,
+    github.createComment, //takes issue number and comment, returns null
+
+    //unlink GitHub issue.
+    function(callback) {
+      callback(null, ticketDetails.githubissue, 'linked');
+    },
+    github.removeIssueLabel,
+
 
     //
-    // Update FreshDesk ticket to status 'Waiting on Development' custom status
+    // Update FreshDesk ticket to remove custom field value
     //
     function(callback) {
       var data = {
         "helpdesk_ticket": {
+          "custom_field": {}
         }
       };
-      data.helpdesk_ticket.status = 4; //4 == Resolved
+      data.helpdesk_ticket.custom_field[realCustomFieldName] = null;
       callback(null, req.params.id, data);
     },
     freshdesk.updateTicket, //takes ticket id & updateObj, returns null
