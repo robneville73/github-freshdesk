@@ -147,7 +147,8 @@ app.post('/api/freshdeskHook/createComment/:id', function(req, res) {
     //
   ], function(error, result) {
     if(error) {
-      res.status(500).send(error);
+      console.log("Problem exporting comment to GitHub ", error);
+      res.status(500).send(error.message);
     } else {
       res.status(201).send("Comment exported to github.");
     }
@@ -175,8 +176,17 @@ app.post('/api/freshdeskHook/linkIssue/:id', function(req, res) {
     },
     freshdesk.lookupTicket, //takes ticket id, returns body of JSON of ticket
     function(details, callback) {
+      if(details.helpdesk_ticket.status !== config_data.fd_customdevstatus) {
+        callback(new Error("FreshDesk ticket not at status "+config_data.fd_customdevstatus));
+        return;
+      }
+      if(details.helpdesk_ticket.custom_field[realCustomFieldName] === null) {
+        callback(new Error("FreshDesk ticket isn't linked to a GitHub issue. "+config_data.fd_customfield+" appears to be blank."));
+        return;
+      }
       ticketDetails.ticketUrl = config_data.fd_url + '/' + details.helpdesk_ticket.display_id;
       ticketDetails.githubissue = details.helpdesk_ticket.custom_field[realCustomFieldName];
+
       callback(null);
     },
 
@@ -212,7 +222,7 @@ app.post('/api/freshdeskHook/linkIssue/:id', function(req, res) {
   ], function(error, result) {
     if(error) {
       console.log("error processing linkIssue ", error);
-      res.status(500);
+      res.status(500).send(error.message);
     } else {
       res.status(201).send("Freshdesk ticket now linked to github issue.");
     }
