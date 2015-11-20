@@ -156,7 +156,7 @@ app.post('/api/freshdeskHook/createComment/:id', function(req, res) {
 
 });
 
-app.post('/api/freshdeskHook/linkIssue/:id', function(req, res) {
+app.put('/api/freshdeskHook/linkIssue/:id', function(req, res) {
   var ticketDetails = {};
   var issueDetails = {};
   var realCustomFieldName;
