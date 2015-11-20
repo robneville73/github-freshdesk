@@ -17,4 +17,4 @@ This project creates a node based web service to receive webhook calls from Gith
           "fd_customdevstatus": <integer> of your custom FreshDesk status that triggers a linkage to github
         }
 
- * FreshDesk's API doesn't provide an automated way to lookup the status. You'll have to look at their API docs https://freshdesk.com/api#view_a_ticket and run it against a ticket you've manually set to your target status and see what integer it assigns to it. Sorry...that kinda sucks but not sure what else to do about it.
+ * FreshDesk's API doesn't provide an automated way to lookup the status. Look at the drop-down in a ticket for the status and count your custom status' position from the top (including the emtpy status of ...) starting at 1 (not zero). That count is what you'll put in fd_customdevstatus.
