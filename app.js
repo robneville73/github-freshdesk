@@ -229,11 +229,87 @@ app.put('/api/freshdeskHook/linkIssue/:id', function(req, res) {
   });
 });
 
-app.post('/api/freshdeskHook/resolveIssue/:id', function(req, res) {
-  res.json({
-    message: "resolveIssue",
-    ticketId: req.params.id
+app.put('/api/freshdeskHook/resolveIssue/:id', function(req, res) {
+  var realCustomFieldName;
+  var ticketDetails = {};
+
+  //see https://github.com/caolan/async#waterfall
+  async.waterfall([
+    //
+    // Grab FreshDesk ticket data
+    //
+    freshdesk.getTicketFields,
+    function(fieldName, callback) {
+      realCustomFieldName = fieldName;
+      callback(null);
+    },
+    function(callback) {
+      callback(null, req.params.id);
+    },
+    freshdesk.lookupTicket, //takes ticket id, returns body of JSON of ticket
+    function(details, callback) {
+      //do some sanity checking
+      if(details.helpdesk_ticket.status !== config_data.fd_customdevstatus) {
+        callback(new Error("FreshDesk ticket not at status "+config_data.fd_customdevstatus));
+        return;
+      }
+      if(details.helpdesk_ticket.custom_field[realCustomFieldName] === null) {
+        callback(new Error("FreshDesk ticket isn't linked to a GitHub issue. "+config_data.fd_customfield+" appears to be blank."));
+        return;
+      }
+
+      ticketDetails.githubissue = details.helpdesk_ticket.custom_field[realCustomFieldName];
+
+      callback(null, ticketDetails.githubissue);
+    },
+
+    //
+    // Check FreshDesk ticket to make sure it exists and it's closed.
+    //
+    github.getIssue, //will bomb if not present.
+    function(githubissue, callback) {
+      if(githubissue.state !== 'closed') {
+        callback(new Error("Github issue "+ticketDetails.githubissue+" doesn't appear to be closed."));
+        return;
+      }
+      callback(null);
+    },
+
+    //
+    // Add note to FreshDesk ticket that development has resolved the issue
+    //
+    function(callback) {
+      callback(null, req.params.id, "Development has checked in the changes needed for this issue. It will be incoporated into the next release.");
+    },
+    freshdesk.addNote,
+
+    //
+    // Update FreshDesk ticket to status 'Waiting on Development' custom status
+    //
+    function(callback) {
+      var data = {
+        "helpdesk_ticket": {
+        }
+      };
+      data.helpdesk_ticket.status = 4; //4 == Resolved
+      callback(null, req.params.id, data);
+    },
+    freshdesk.updateTicket, //takes ticket id & updateObj, returns null
+
+    //
+    // Handle Results and Errors
+    //
+  ], function(error, result) {
+    if(error) {
+      console.log("error processing resolveIssue ", error);
+      res.status(500).send(error.message);
+    } else {
+      res.status(201).send("Freshdesk ticket now resolved.");
+    }
   });
+
+
+
 });
 
 //
