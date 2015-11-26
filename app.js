@@ -7,7 +7,7 @@ var github = require('./lib/github');
 var bodyParser = require('body-parser');
 var toMarkdown = require('to-markdown');
 
-app.use(bodyParser.urlencoded({extended: true}));
+//app.use(bodyParser.urlencoded({extended: true}));
 app.use(bodyParser.json());
 
 var config_data = require('./lib/config');
@@ -106,9 +106,6 @@ app.post('/api/freshdeskHook/createComment/:id', function(req, res) {
   var issueDetails = {};
   var realCustomFieldName;
 
-  //TODO this thing has to be smart enough not to get into a loop of adding
-  //comments when an API trigger causes a note to be written to freshdesk
-  //see https://github.com/caolan/async#waterfall
   async.waterfall([
     //
     // Grab FreshDesk ticket details to get latest note
@@ -125,6 +122,12 @@ app.post('/api/freshdeskHook/createComment/:id', function(req, res) {
     function(details, callback) {
       var latest_note = details.helpdesk_ticket.notes[details.helpdesk_ticket.notes.length-1];
       ticketDetails.note = toMarkdown(latest_note.note.body_html);
+      //make sure that this isn't a comment that came from GitHub so we don't
+      //get caught in a loop of adding comments
+      if (ticketDetails.note.indexOf("@note") >= 0) {
+        callback(new Error("Automatic note should not be sent back..."));
+        return;
+      }
       ticketDetails.note_user = latest_note.note.user_id;
       ticketDetails.githubissue = details.helpdesk_ticket.custom_field[realCustomFieldName];
       callback(null, ticketDetails.note_user);
@@ -231,7 +234,7 @@ app.put('/api/freshdeskHook/linkIssue/:id', function(req, res) {
       console.log("error processing linkIssue ", error);
       res.status(500).send(error.message);
     } else {
-      res.status(201).send("Freshdesk ticket now linked to github issue.");
+      res.status(200).send("Freshdesk ticket now linked to github issue.");
     }
   });
 });
@@ -330,7 +333,7 @@ app.put('/api/freshdeskHook/resolveIssue/:id', function(req, res) {
       console.log("error processing resolveIssue ", error);
       res.status(500).send(error.message);
     } else {
-      res.status(201).send("Freshdesk ticket now resolved.");
+      res.status(200).send("Freshdesk ticket now resolved.");
     }
   });
 });
@@ -418,13 +421,60 @@ app.put('/api/freshdeskHook/reopenTicket/:id', function(req, res) {
 //
 // github hooks
 //
-app.post('/api/githubHook/issueEvent', function(req, res) {
+app.put('/api/githubHook/issueEvent', function(req, res) {
+  //labeled
+  //unlabeled
+  //closed
   res.send("got issueEvent");
 });
 
 app.post('/api/githubHook/issueCommentEvent', function(req, res) {
-  res.send("got issueCommentEvent");
+  //see https://developer.github.com/v3/activity/events/types/#issuecommentevent
+  var comment;
+  var eventPayload = req.body; //bodyParser should've decoded into JSON already
+  var updateCount = 0;
+  if (eventPayload.action === "created") {
+    comment = eventPayload.comment.body;
+    if (comment.indexOf('@note') >= 0) {
+      //this issue comment should be copied to FreshDesk
+      async.waterfall([
+        function(callback) {
+          callback(null, eventPayload.issue.number);
+        },
+        github.getLinkedTickets,
+        function(fd_issues, callback) {
+          //add note to each linked ticket in parallel with async.each
+          async.each(fd_issues, function(item, eachCallback) {
+            freshdesk.addNote(item, comment, function(err) {
+              if (err) {
+                eachCallback(err);
+              } else {
+                updateCount = updateCount + 1;
+                eachCallback();
+              }
+            });
+          }, function(err, results) {
+            if (err) {
+              console.log("Error in async.each trying to add notes to FD");
+              eachCallback(new Error(err.message));
+            }
+            callback(results);
+          });
+        }
+      ], function (error, result) {
+        if (error) {
+          console.log("error processing issueCommentEvent ", error);
+          res.status(500).send(error.message);
+        } else {
+          res.status(201).send(updateCount + " Github comment(s) copied to FreshDesk ticket");
+        }
+      });
+    }
+  }
 });
+
+
+
 
 var server = app.listen(3000, function() {
   var host = server.address().address;
