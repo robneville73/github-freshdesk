@@ -148,7 +148,10 @@ app.post('/api/freshdeskHook/createComment/:id', function(req, res) {
     //
     github.authenticate,
     function(callback) {
-      callback(null, ticketDetails.githubissue, ticketDetails.note);
+      //prune boilerplate footer from FD note.
+      var trimmedNote = ticketDetails.note;
+      trimmedNote = trimmedNote.slice(0, trimmedNote.indexOf("Ticket:"));
+      callback(null, ticketDetails.githubissue, trimmedNote);
     },
     github.createComment
 
